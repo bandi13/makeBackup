@@ -5,6 +5,7 @@
 # as often as you want, and it'll save the last $LEN backups.
 use strict;
 use File::Copy;
+use File::Basename;
 use File::Path qw(make_path remove_tree);
 
 # Default arguments
@@ -27,6 +28,21 @@ if($#ARGV == 2) {
 if(!-d $SOURCE) { print "Source does not exist.\n"; exit; }
 if(!($LEN =~ /^\d+?$/)) { print "'$LEN' is not an integer.\n"; exit; }
 
+my $pidfile = "/tmp/".basename($0).".pid";
+if(-e "$pidfile") {
+	open(PIDFILE,"$pidfile") || die "Cannot create $pidfile";
+	$_ = <PIDFILE>;
+	$_ =~ s/\D*//g;
+	if(kill 0,$_) {
+		print "Process ($_) is already running.\n";
+		exit;
+	}
+}
+
+open(PIDFILE,">$pidfile") || die "Cannot create $pidfile";
+print PIDFILE "$$";
+close(PIDFILE);
+
 &doRsync($SOURCE,$DEST,$LEN);
 
 sub doRsync() {
@@ -45,9 +61,9 @@ sub doRsync() {
 	if(-d "$BACKUP_ROOT/backup.$BACKUP_LEN") { remove_tree("$BACKUP_ROOT/backup.$BACKUP_LEN"); }
 # Make the backup
 	if(-d "$BACKUP_ROOT/backup.1") {
-		system "rsync -uaq --delete --partial --link-dest=$BACKUP_ROOT/backup.1 $BACKUP_SOURCE $BACKUP_ROOT/backup.0"
+		system "rsync -uaq --delete --partial --link-dest=\"$BACKUP_ROOT/backup.1\" \"$BACKUP_SOURCE\" \"$BACKUP_ROOT/backup.0\""
 	} else {
-		system "rsync -uaq --delete --partial $BACKUP_SOURCE $BACKUP_ROOT/backup.0";
+		system "rsync -uaq --delete --partial \"$BACKUP_SOURCE\" \"$BACKUP_ROOT/backup.0\"";
 	}
 }
 
