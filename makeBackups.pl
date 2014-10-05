@@ -65,5 +65,6 @@ sub doRsync() {
 	} else {
 		system "rsync -uaq --delete --partial \"$BACKUP_SOURCE\" \"$BACKUP_ROOT/backup.0\"";
 	}
+	system("touch \"$BACKUP_ROOT/backup.0\""); # Update timestamp
 }
 
