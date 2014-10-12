@@ -7,6 +7,7 @@ use strict;
 use File::Copy;
 use File::Basename;
 use File::Path qw(make_path remove_tree);
+use Memoize;
 
 # Default arguments
 my $SOURCE="/data/";
@@ -26,9 +27,15 @@ if($#ARGV == 2) {
 }
 
 if(!-d $SOURCE) { print "Source does not exist.\n"; exit; }
+if(!($SOURCE =~ /^\//)) { print "Source is not an absolute path.\n"; exit; }
+if(!($DEST =~ /^\//)) { print "backupDir is not an absolute path.\n"; exit; }
 if(!($LEN =~ /^\d+?$/)) { print "'$LEN' is not an integer.\n"; exit; }
+if($LEN > 100) { print "'$LEN' is greater than supported backup count.\n"; exit; }
 
-my $pidfile = "/tmp/".basename($0).".pid";
+memoize('getPathName');
+
+my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
+my $pidfile = "/tmp/".basename($0)."_$username.pid";
 if(-e "$pidfile") {
 	open(PIDFILE,"$pidfile") || die "Cannot create $pidfile";
 	$_ = <PIDFILE>;
@@ -53,18 +60,25 @@ sub doRsync() {
 	if(! -d "$BACKUP_ROOT" ) { make_path($BACKUP_ROOT) || die "Can't create backup directory"; }
 # Shift backups down by one
 	for ( my $i=$BACKUP_LEN; $i!=0; $i-- ) {
-		if( -d "$BACKUP_ROOT/backup.".($i-1)) {
-			move("$BACKUP_ROOT/backup.". ($i - 1), "$BACKUP_ROOT/backup.$i");
-		}
+		my $oldName = &getPathName("$BACKUP_ROOT/backup.",$i-1);
+		my $newName = &getPathName("$BACKUP_ROOT/backup.",$i);
+		if( -d $oldName) { move($oldName, $newName); }
 	}
 # Delete max oldest backup
-	if(-d "$BACKUP_ROOT/backup.$BACKUP_LEN") { remove_tree("$BACKUP_ROOT/backup.$BACKUP_LEN"); }
+	my $oldName = &getPathName("$BACKUP_ROOT/backup.",$BACKUP_LEN);
+	if(-d $oldName) { remove_tree($oldName); }
 # Make the backup
-	if(-d "$BACKUP_ROOT/backup.1") {
-		system "rsync -uaq --delete --partial --link-dest=\"$BACKUP_ROOT/backup.1\" \"$BACKUP_SOURCE\" \"$BACKUP_ROOT/backup.0\""
-	} else {
-		system "rsync -uaq --delete --partial \"$BACKUP_SOURCE\" \"$BACKUP_ROOT/backup.0\"";
-	}
-	system("touch \"$BACKUP_ROOT/backup.0\""); # Update timestamp
+	my $cmd = "rsync -uaq --delete --partial";
+	$oldName = &getPathName("$BACKUP_ROOT/backup.",1);
+	if(-d $oldName) { $cmd = $cmd . " --link-dest=\"$oldName\""; }
+
+	my $newName = &getPathName("$BACKUP_ROOT/backup.",0);
+	print "$cmd \"$BACKUP_SOURCE\" \"$newName\" && touch \"$newName\""; # do backup and update timestamp
 }
 
+sub getPathName() {
+	my $base = $_[0];
+	my $count = $_[1];
+	# change %0nd where 'n' is the number of digits
+	return $base . sprintf("%02d",$count);
+}
